@@ -5,13 +5,12 @@ import numpy as np
 from io import BytesIO
 from PIL import Image
 import random
-import pickle # Added to load your .pkl file
+import pickle
 
 # Initialize the App
 app = FastAPI(title="Rice Yield Prediction API")
 
 # --- LOAD ENSEMBLE MODEL ---
-# This looks for the .pkl file in the same folder as main.py
 try:
     ensemble_model = pickle.load(open('rice_ensemble.pkl', 'rb'))
     print("✅ Ensemble Model loaded successfully!")
@@ -24,10 +23,15 @@ class YieldInput(BaseModel):
     nitrogen: float
     phosphorus: float
     potassium: float
+    ph: float             
     temperature: float
+    rainfall: float       
     humidity: float
-    rainfall: float
-    ph: float
+    
+    # Adding the 3 missing features with defaults so your mobile app doesn't crash!
+    irrigation_type: int = 0  # Default to 0 (Flood)
+    crop_variety: int = 1     # Default to 1 (Inbred)
+    soil_type: int = 0        # Default to 0 (Clay)
 
 # --- ENDPOINTS ---
 
@@ -45,9 +49,8 @@ async def predict_soil_type(file: UploadFile = File(...)):
         image = Image.open(BytesIO(image_data))
         image = image.resize((224, 224))
         
-        # Note: If you have a .h5 or .pkl for image classification, you would load it similarly.
-        # For now, leaving the soil detection as a placeholder so the app doesn't crash.
-        soil_types = ['Clay Loam', 'Sandy Loam', 'Silty Clay', 'Alluvial']
+        # Updated to match the soil types your model was trained on
+        soil_types = ['Clay', 'Sandy', 'Silty'] 
         detected_type = random.choice(soil_types)
         
         return {
@@ -67,27 +70,30 @@ def predict_yield(data: YieldInput):
         raise HTTPException(status_code=500, detail="Machine Learning model is not loaded on the server.")
 
     try:
-        # 1. Format the incoming data into a Numpy Array for the model
-        # The order must match exactly how you trained the model!
+        # 1. Format the data into a Numpy Array. 
+        # WARNING: This order matches train_model.py EXACTLY. Do not rearrange!
         input_features = np.array([[
             data.nitrogen, 
             data.phosphorus, 
             data.potassium, 
+            data.ph,
             data.temperature, 
+            data.rainfall,
             data.humidity, 
-            data.ph, 
-            data.rainfall
+            data.irrigation_type,
+            data.crop_variety,
+            data.soil_type
         ]])
 
         # 2. Run the actual prediction through your Stacking Regressor
         prediction = ensemble_model.predict(input_features)[0]
         final_yield = float(prediction)
 
-        # 3. Dynamic Advisory Logic
+        # 3. Dynamic Advisory Logic based on your training rules
         if data.rainfall < 100:
             advisory = "Maintain water level at 5cm. Rainfall is low."
-        elif "Red Soil" in predict_soil_type.__doc__: # Example context logic
-             advisory = "Drain simulation recommended."
+        elif data.soil_type == 1: # Sandy soil
+             advisory = "Drain simulation recommended. High percolation risk."
         else:
             advisory = "Conditions are optimal."
 
