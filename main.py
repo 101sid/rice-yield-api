@@ -19,6 +19,7 @@ except Exception as e:
     ensemble_model = None
 
 # --- DATA MODELS ---
+# We changed the last three features to 'str' (String) to match your Flutter app perfectly!
 class YieldInput(BaseModel):
     nitrogen: float
     phosphorus: float
@@ -27,11 +28,9 @@ class YieldInput(BaseModel):
     temperature: float
     rainfall: float       
     humidity: float
-    
-    # Adding the 3 missing features with defaults so your mobile app doesn't crash!
-    irrigation_type: int = 0  # Default to 0 (Flood)
-    crop_variety: int = 1     # Default to 1 (Inbred)
-    soil_type: int = 0        # Default to 0 (Clay)
+    irrigation_type: str 
+    crop_variety: str    
+    soil_type: str       
 
 # --- ENDPOINTS ---
 
@@ -41,15 +40,11 @@ def read_root():
 
 @app.post("/predict-soil-type/")
 async def predict_soil_type(file: UploadFile = File(...)):
-    """
-    Receives an image, processes it, and returns the soil class.
-    """
     try:
         image_data = await file.read()
         image = Image.open(BytesIO(image_data))
         image = image.resize((224, 224))
         
-        # Updated to match the soil types your model was trained on
         soil_types = ['Clay', 'Sandy', 'Silty'] 
         detected_type = random.choice(soil_types)
         
@@ -63,15 +58,25 @@ async def predict_soil_type(file: UploadFile = File(...)):
 
 @app.post("/predict-yield/")
 def predict_yield(data: YieldInput):
-    """
-    Receives NPK + Weather data and returns predicted yield in Tons/Ha.
-    """
     if ensemble_model is None:
-        raise HTTPException(status_code=500, detail="Machine Learning model is not loaded on the server.")
+        raise HTTPException(status_code=500, detail="Machine Learning model is not loaded.")
 
     try:
-        # 1. Format the data into a Numpy Array. 
-        # WARNING: This order matches train_model.py EXACTLY. Do not rearrange!
+        # --- TRANSLATE FLUTTER TEXT INTO ML NUMBERS ---
+        
+        # 1. Irrigation: 0=Flood, 1=AWD, 2=Rainfed
+        ir_map = {"Continuous Flooding": 0, "AWD (Alternate Wetting Drying)": 1, "Rainfed": 2}
+        ir_val = ir_map.get(data.irrigation_type, 0) # Defaults to 0 if it doesn't match
+
+        # 2. Variety: 0=Hybrid, 1=Inbred, 2=Traditional
+        cv_map = {"Hybrid (High Yield)": 0, "Inbred": 1, "Traditional": 2}
+        cv_val = cv_map.get(data.crop_variety, 1) # Defaults to 1 if it doesn't match
+
+        # 3. Soil: 0=Clay, 1=Sandy, 2=Silty
+        soil_map = {"Clay": 0, "Sandy": 1, "Silty": 2, "Clay Loam": 0} 
+        soil_val = soil_map.get(data.soil_type, 0) # Defaults to 0 if it doesn't match
+
+        # --- RUN PREDICTION ---
         input_features = np.array([[
             data.nitrogen, 
             data.phosphorus, 
@@ -80,19 +85,18 @@ def predict_yield(data: YieldInput):
             data.temperature, 
             data.rainfall,
             data.humidity, 
-            data.irrigation_type,
-            data.crop_variety,
-            data.soil_type
+            ir_val,     # Passing the translated number
+            cv_val,     # Passing the translated number
+            soil_val    # Passing the translated number
         ]])
 
-        # 2. Run the actual prediction through your Stacking Regressor
         prediction = ensemble_model.predict(input_features)[0]
         final_yield = float(prediction)
 
-        # 3. Dynamic Advisory Logic based on your training rules
+        # Dynamic Advisory
         if data.rainfall < 100:
             advisory = "Maintain water level at 5cm. Rainfall is low."
-        elif data.soil_type == 1: # Sandy soil
+        elif soil_val == 1: 
              advisory = "Drain simulation recommended. High percolation risk."
         else:
             advisory = "Conditions are optimal."
