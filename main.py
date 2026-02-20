@@ -93,13 +93,37 @@ def predict_yield(data: YieldInput):
         prediction = ensemble_model.predict(input_features)[0]
         final_yield = float(prediction)
 
-        # Dynamic Advisory
-        if data.rainfall < 100:
-            advisory = "Maintain water level at 5cm. Rainfall is low."
-        elif soil_val == 1: 
-             advisory = "Drain simulation recommended. High percolation risk."
-        else:
+        # --- ADVANCED DYNAMIC ADVISORY LOGIC ---
+        warnings = []
+
+        # 1. Temperature Checks
+        if data.temperature == 0:
+            warnings.append("Critical: Temp is 0. Sensors may be offline.")
+        elif data.temperature > 35:
+            warnings.append("Heat stress warning. Maintain standing water.")
+        elif data.temperature < 20:
+            warnings.append("Cold stress: Growth may be stunted.")
+
+        # 2. Nutrient & pH Checks
+        if data.nitrogen < 80 and data.nitrogen > 0:
+            warnings.append("Low Nitrogen: Apply urea.")
+        if data.ph < 5.5 and data.ph > 0:
+            warnings.append("Acidic soil: Consider applying lime.")
+        elif data.ph > 7.5:
+            warnings.append("Alkaline soil: Apply gypsum.")
+
+        # 3. Water & Soil Checks
+        if data.rainfall < 100 and ir_val == 2: # Rainfed
+            warnings.append("Drought risk: Rain is too low for Rainfed crops.")
+        elif soil_val == 1 and ir_val == 1: # Sandy + AWD
+             warnings.append("High percolation risk: AWD not recommended for Sandy soil.")
+        
+        # 4. Compile the final message
+        if not warnings:
             advisory = "Conditions are optimal."
+        else:
+            # This joins multiple warnings together with a " | " separator
+            advisory = " | ".join(warnings)
 
         return {
             "predicted_yield_tons_ha": round(final_yield, 2),
