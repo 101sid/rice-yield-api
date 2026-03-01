@@ -94,40 +94,90 @@ def predict_yield(data: YieldInput):
         final_yield = float(prediction)
 
         # --- ADVANCED DYNAMIC ADVISORY LOGIC ---
-        warnings = []
+       # --- EXPERT SYSTEM ADVISORY LOGIC (>50 VARIATIONS) ---
+       # --- MEGA EXPERT SYSTEM ADVISORY LOGIC (>1000 VARIATIONS) ---
+        advisories = []
 
-        # 1. Temperature Checks
-        if data.temperature == 0:
-            warnings.append("Critical: Temp is 0. Sensors may be offline.")
-        elif data.temperature > 35:
-            warnings.append("Heat stress warning. Maintain standing water.")
-        elif data.temperature < 20:
-            warnings.append("Cold stress: Growth may be stunted.")
+        # 1. NPK Absolute Values
+        if data.nitrogen < 40:
+            advisories.append("🚨 Severe N deficiency: Growth will be highly stunted. Apply split doses of Urea immediately.")
+        elif 40 <= data.nitrogen < 80:
+            advisories.append("⚠️ Sub-optimal Nitrogen: Top dress with Urea to ensure proper tillering.")
+        elif 150 < data.nitrogen <= 200:
+            advisories.append("⚠️ Excess Nitrogen: High risk of lodging and Brown Plant Hopper attacks. Reduce N input.")
+            
+        if data.phosphorus < 20:
+            advisories.append("🚨 Severe P deficiency: Root development restricted. Apply DAP or SSP.")
+        elif 20 <= data.phosphorus < 40:
+            advisories.append("⚠️ Low Phosphorus: Grain filling may be delayed.")
 
-        # 2. Nutrient & pH Checks
-        if data.nitrogen < 80 and data.nitrogen > 0:
-            warnings.append("Low Nitrogen: Apply urea.")
-        if data.ph < 5.5 and data.ph > 0:
-            warnings.append("Acidic soil: Consider applying lime.")
+        if data.potassium < 30:
+            advisories.append("🚨 Severe K deficiency: Weak stems and poor disease resistance. Apply MOP.")
+        elif 30 <= data.potassium < 50:
+            advisories.append("⚠️ Low Potassium: Crop is vulnerable to stress. Supplement K.")
+
+        # 2. Nutrient & Variety Inter-dependencies
+        if data.nitrogen > 120 and data.potassium < 40:
+            advisories.append("🦠 Imbalanced N:K Ratio: High N with low K severely increases vulnerability to fungal diseases.")
+        if cv_val == 0 and (data.nitrogen < 80 or data.phosphorus < 30): # Hybrid + Low Nutrients
+            advisories.append("🧬 Hybrid Mismatch: Hybrid varieties demand high fertilizers. Current nutrient levels will starve the crop.")
+        elif cv_val == 2 and data.nitrogen > 100: # Traditional + High N
+            advisories.append("🌾 Traditional Mismatch: Traditional varieties lodge (fall over) easily under high Nitrogen. Stop N application.")
+
+        # 3. pH Granular Sensitivity
+        if data.ph < 4.5:
+            advisories.append("☠️ Extremely Acidic: High Iron/Aluminum toxicity risk. Urgent agricultural liming required.")
+        elif 4.5 <= data.ph < 5.5:
+            advisories.append("⚠️ Acidic Soil: Base yields restricted. Consider liming next season.")
+        elif 6.5 < data.ph <= 7.5:
+            advisories.append("⚠️ Slightly Alkaline: Monitor for Zinc or Iron deficiency.")
         elif data.ph > 7.5:
-            warnings.append("Alkaline soil: Apply gypsum.")
+            advisories.append("☠️ Highly Alkaline: Salinity risk. Apply Gypsum and ensure excellent drainage.")
 
-        # 3. Water & Soil Checks
-        if data.rainfall < 100 and ir_val == 2: # Rainfed
-            warnings.append("Drought risk: Rain is too low for Rainfed crops.")
-        elif soil_val == 1 and ir_val == 1: # Sandy + AWD
-             warnings.append("High percolation risk: AWD not recommended for Sandy soil.")
-        
-        # 4. Compile the final message
-        if not warnings:
-            advisory = "Conditions are optimal."
+        # 4. Weather & Disease Vectors
+        if data.temperature < 15:
+            advisories.append("🥶 Critical Cold: Seedling mortality likely. Do not drain the field.")
+        elif 15 <= data.temperature < 22:
+            advisories.append("❄️ Mild Cold Stress: Vegetative growth will be sluggish.")
+        elif 33 < data.temperature <= 36:
+            advisories.append("🌡️ Moderate Heat Stress: Pollen viability decreasing.")
+        elif data.temperature > 36:
+            advisories.append("🔥 Severe Heat Stress: Spikelet sterility imminent. Maintain 5-7cm standing water to cool the canopy.")
+
+        if data.humidity > 85 and data.temperature > 28:
+            advisories.append("🍄 Fungal Weather: High humidity + warmth is perfect for Blast and Sheath Blight. Spray preventive fungicide.")
+        elif data.humidity < 40 and data.temperature > 32:
+            advisories.append("🏜️ Hot & Dry: Extreme transpiration rate. The crop will exhaust soil moisture rapidly.")
+
+        # 5. Hydrology & Soil Physics
+        if data.rainfall > 250 and ir_val == 0: # Flood + Heavy Rain
+            advisories.append("🌊 Submergence Risk: Heavy rain + Flood irrigation = nutrient leaching. Open drainage channels immediately.")
+        elif data.rainfall < 50 and ir_val == 2: # Rainfed + Low Rain
+            advisories.append("🌵 Severe Drought: Rainfed crop failing. Seek alternate life-saving irrigation.")
+        elif data.rainfall > 200 and data.nitrogen > 120:
+            advisories.append("🌧️ Rain Washout: Heavy rains will leach your high Nitrogen levels. Delay fertilizer application.")
+
+        if soil_val == 1 and ir_val == 0: # Sandy + Flood
+             advisories.append("💧 Inefficient Irrigation: Flooding Sandy soil causes massive water percolation loss. Switch to frequent light watering.")
+        elif soil_val == 0 and ir_val == 1: # Clay + AWD
+             advisories.append("✅ Optimal Water Strategy: Clay soil retains water beautifully, making AWD highly effective and safe.")
+
+        # 6. Yield Trajectory
+        if final_yield < 2.0:
+            advisories.append("📉 Yield projection is critically low. Comprehensive intervention required.")
+        elif final_yield > 6.0:
+            advisories.append("🏆 Exceptional yield trajectory! Maintain current monitoring.")
+
+        # 7. Compile the final hyper-specific message
+        if not advisories:
+            final_advisory = "✅ All environmental and nutritional parameters are perfectly balanced."
         else:
-            # This joins multiple warnings together with a " | " separator
-            advisory = " | ".join(warnings)
+            # Join with a double newline for clean readability on the mobile app
+            final_advisory = "\n\n".join(advisories)
 
         return {
             "predicted_yield_tons_ha": round(final_yield, 2),
-            "advisory": advisory
+            "advisory": final_advisory
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
