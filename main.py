@@ -10,33 +10,44 @@ import pickle
 # Initialize the App
 app = FastAPI(title="Rice Yield Prediction API")
 
-# --- LOAD ENSEMBLE MODEL ---
-try:
-    ensemble_model = pickle.load(open('rice_ensemble.pkl', 'rb'))
-    print("✅ Ensemble Model loaded successfully!")
-except Exception as e:
-    print(f"⚠️ Warning: Could not load rice_ensemble.pkl. Error: {e}")
-    ensemble_model = None
+# --- LOAD ALL MODELS ---
+# We keep your ensemble, but also load the baselines for comparison
+model_files = {
+    "Linear Regression": "linear_model.pkl",
+    "KNN Regressor": "knn_model.pkl",
+    "Random Forest": "rf_model.pkl",
+    "Final Stacking Ensemble": "rice_ensemble.pkl"
+}
+
+loaded_models = {}
+for name, file in model_files.items():
+    try:
+        loaded_models[name] = pickle.load(open(file, 'rb'))
+        print(f"✅ {name} loaded successfully!")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not load {file}. Error: {e}")
+        loaded_models[name] = None
 
 # --- DATA MODELS ---
-# We changed the last three features to 'str' (String) to match your Flutter app perfectly!
 class YieldInput(BaseModel):
     nitrogen: float
     phosphorus: float
     potassium: float
-    ph: float             
+    ph: float              
     temperature: float
-    rainfall: float       
+    rainfall: float        
     humidity: float
     irrigation_type: str 
     crop_variety: str    
-    soil_type: str       
+    soil_type: str        
 
 # --- ENDPOINTS ---
 
 @app.get("/")
 def read_root():
-    return {"status": "System Online", "version": "1.0", "model_loaded": ensemble_model is not None}
+    # Check if the main ensemble is loaded
+    is_live = loaded_models.get("Final Stacking Ensemble") is not None
+    return {"status": "System Online", "version": "2.0", "ensemble_live": is_live}
 
 @app.post("/predict-soil-type/")
 async def predict_soil_type(file: UploadFile = File(...)):
@@ -58,44 +69,43 @@ async def predict_soil_type(file: UploadFile = File(...)):
 
 @app.post("/predict-yield/")
 def predict_yield(data: YieldInput):
-    if ensemble_model is None:
-        raise HTTPException(status_code=500, detail="Machine Learning model is not loaded.")
+    # Ensure the main model exists
+    if loaded_models.get("Final Stacking Ensemble") is None:
+        raise HTTPException(status_code=500, detail="Main Ensemble model is not loaded.")
 
     try:
         # --- TRANSLATE FLUTTER TEXT INTO ML NUMBERS ---
-        
-        # 1. Irrigation: 0=Flood, 1=AWD, 2=Rainfed
         ir_map = {"Continuous Flooding": 0, "AWD (Alternate Wetting Drying)": 1, "Rainfed": 2}
-        ir_val = ir_map.get(data.irrigation_type, 0) # Defaults to 0 if it doesn't match
+        ir_val = ir_map.get(data.irrigation_type, 0)
 
-        # 2. Variety: 0=Hybrid, 1=Inbred, 2=Traditional
         cv_map = {"Hybrid (High Yield)": 0, "Inbred": 1, "Traditional": 2}
-        cv_val = cv_map.get(data.crop_variety, 1) # Defaults to 1 if it doesn't match
+        cv_val = cv_map.get(data.crop_variety, 1)
 
-        # 3. Soil: 0=Clay, 1=Sandy, 2=Silty
         soil_map = {"Clay": 0, "Sandy": 1, "Silty": 2, "Clay Loam": 0} 
-        soil_val = soil_map.get(data.soil_type, 0) # Defaults to 0 if it doesn't match
+        soil_val = soil_map.get(data.soil_type, 0)
 
-        # --- RUN PREDICTION ---
+        # Build input features array
         input_features = np.array([[
-            data.nitrogen, 
-            data.phosphorus, 
-            data.potassium, 
-            data.ph,
-            data.temperature, 
-            data.rainfall,
-            data.humidity, 
-            ir_val,     # Passing the translated number
-            cv_val,     # Passing the translated number
-            soil_val    # Passing the translated number
+            data.nitrogen, data.phosphorus, data.potassium, data.ph,
+            data.temperature, data.rainfall, data.humidity, 
+            ir_val, cv_val, soil_val
         ]])
 
-        prediction = ensemble_model.predict(input_features)[0]
-        final_yield = float(prediction)
+        # --- RUN ALL PREDICTIONS ---
+        all_predictions = []
+        for name, model in loaded_models.items():
+            if model:
+                pred = model.predict(input_features)[0]
+                all_predictions.append({
+                    "model_name": name,
+                    "prediction": round(float(pred), 2),
+                    "is_final": name == "Final Stacking Ensemble"
+                })
 
-        # --- ADVANCED DYNAMIC ADVISORY LOGIC ---
-       # --- EXPERT SYSTEM ADVISORY LOGIC (>50 VARIATIONS) ---
-       # --- MEGA EXPERT SYSTEM ADVISORY LOGIC (>1000 VARIATIONS) ---
+        # Use the Final Ensemble result for the Advisory Logic
+        final_yield = all_predictions[-1]["prediction"]
+
+        # --- YOUR EXISTING MEGA EXPERT SYSTEM ADVISORY LOGIC ---
         advisories = []
 
         # 1. NPK Absolute Values
@@ -119,9 +129,9 @@ def predict_yield(data: YieldInput):
         # 2. Nutrient & Variety Inter-dependencies
         if data.nitrogen > 120 and data.potassium < 40:
             advisories.append("🦠 Imbalanced N:K Ratio: High N with low K severely increases vulnerability to fungal diseases.")
-        if cv_val == 0 and (data.nitrogen < 80 or data.phosphorus < 30): # Hybrid + Low Nutrients
+        if cv_val == 0 and (data.nitrogen < 80 or data.phosphorus < 30):
             advisories.append("🧬 Hybrid Mismatch: Hybrid varieties demand high fertilizers. Current nutrient levels will starve the crop.")
-        elif cv_val == 2 and data.nitrogen > 100: # Traditional + High N
+        elif cv_val == 2 and data.nitrogen > 100:
             advisories.append("🌾 Traditional Mismatch: Traditional varieties lodge (fall over) easily under high Nitrogen. Stop N application.")
 
         # 3. pH Granular Sensitivity
@@ -150,16 +160,16 @@ def predict_yield(data: YieldInput):
             advisories.append("🏜️ Hot & Dry: Extreme transpiration rate. The crop will exhaust soil moisture rapidly.")
 
         # 5. Hydrology & Soil Physics
-        if data.rainfall > 250 and ir_val == 0: # Flood + Heavy Rain
+        if data.rainfall > 250 and ir_val == 0:
             advisories.append("🌊 Submergence Risk: Heavy rain + Flood irrigation = nutrient leaching. Open drainage channels immediately.")
-        elif data.rainfall < 50 and ir_val == 2: # Rainfed + Low Rain
+        elif data.rainfall < 50 and ir_val == 2:
             advisories.append("🌵 Severe Drought: Rainfed crop failing. Seek alternate life-saving irrigation.")
         elif data.rainfall > 200 and data.nitrogen > 120:
             advisories.append("🌧️ Rain Washout: Heavy rains will leach your high Nitrogen levels. Delay fertilizer application.")
 
-        if soil_val == 1 and ir_val == 0: # Sandy + Flood
+        if soil_val == 1 and ir_val == 0:
              advisories.append("💧 Inefficient Irrigation: Flooding Sandy soil causes massive water percolation loss. Switch to frequent light watering.")
-        elif soil_val == 0 and ir_val == 1: # Clay + AWD
+        elif soil_val == 0 and ir_val == 1:
              advisories.append("✅ Optimal Water Strategy: Clay soil retains water beautifully, making AWD highly effective and safe.")
 
         # 6. Yield Trajectory
@@ -168,15 +178,15 @@ def predict_yield(data: YieldInput):
         elif final_yield > 6.0:
             advisories.append("🏆 Exceptional yield trajectory! Maintain current monitoring.")
 
-        # 7. Compile the final hyper-specific message
+        # 7. Compile Final Output
         if not advisories:
             final_advisory = "✅ All environmental and nutritional parameters are perfectly balanced."
         else:
-            # Join with a double newline for clean readability on the mobile app
             final_advisory = "\n\n".join(advisories)
 
         return {
-            "predicted_yield_tons_ha": round(final_yield, 2),
+            "all_predictions": all_predictions, # NEW: Send all 4 model results
+            "predicted_yield_tons_ha": final_yield, # Keep for backward compatibility
             "advisory": final_advisory
         }
     except Exception as e:
